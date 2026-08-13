@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Proctoring Test</title>
+    <style>
+        body {
+            background: #1e1e1e;
+            color: white;
+            font-family: 'Times New Roman', serif;
+            text-align: center;
+        }
+        #stage {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            margin: 30px auto;
+        }
+        #stage video, #stage canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 640px;
+            height: 480px;
+            border-radius: 10px;
+        }
+        #webcam { border: 3px solid #444; }
+        #overlay { pointer-events: none; }
+        #timerChip {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: rgba(30,30,30,0.8);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        #timerChip.danger { background: rgba(200,40,40,0.85); }
+        #warningModal {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255,255,255,0.95);
+            color: #b41e1e;
+            border: 2px solid #d23c3c;
+            border-radius: 14px;
+            padding: 16px 24px;
+            font-size: 22px;
+            font-weight: bold;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Online Assessment</h1>
+    <p style="font-size:14px; color:#aaa;">Candidate: {{ candidate_name }}</p>
+
+    <div id="stage">
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="overlay" width="640" height="480"></canvas>
+        <div id="timerChip">--:-- left</div>
+        <div id="warningModal">⚠ Warning</div>
+    </div>
+
+    <canvas id="capture" width="640" height="480" style="display:none;"></canvas>
+
+    <script>
+        // These come from Project 1's redirect -- NOT verified again here,
+        // this project trusts that Project 1 already did that job.
+        const candidateId = "{{ candidate_id }}";
+        const candidateName = "{{ candidate_name }}";
+
+        const video = document.getElementById("webcam");
+        const overlay = document.getElementById("overlay");
+        const overlayCtx = overlay.getContext("2d");
+        const captureCanvas = document.getElementById("capture");
+        const captureCtx = captureCanvas.getContext("2d");
+        const timerChip = document.getElementById("timerChip");
+        const warningModal = document.getElementById("warningModal");
+
+        let sessionEnded = false;
+
+        function formatTime(totalSeconds) {
+            const m = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+            const s = Math.floor(totalSeconds % 60).toString().padStart(2, "0");
+            return `${m}:${s} left`;
+        }
+
+        function drawBoxes(data) {
+            overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+            overlayCtx.strokeStyle = "lime";
+            overlayCtx.lineWidth = 2;
+            data.faces.forEach(f => {
+                const [x1, y1, x2, y2] = f.bbox;
+                overlayCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            });
+            data.objects.forEach(o => {
+                const [x1, y1, x2, y2] = o.bbox;
+                overlayCtx.strokeStyle = o.label === "cell phone" ? "red" : "orange";
+                overlayCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                overlayCtx.fillStyle = overlayCtx.strokeStyle;
+                overlayCtx.font = "14px Arial";
+                overlayCtx.fillText(o.label, x1, y1 - 5);
+            });
+        }
+
+        function showWarning() {
+            warningModal.style.display = "block";
+            setTimeout(() => { warningModal.style.display = "none"; }, 3000);
+        }
+
+        function reportViolation(type, detected) {
+            if (sessionEnded) return;
+            fetch("/report_violation", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type, detected }),
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.should_end) {
+                        sessionEnded = true;
+                        endSession(data.end_reason);
+                    }
+                })
+                .catch(err => console.error("Violation report failed:", err));
+        }
+
+        document.addEventListener("visibilitychange", () => {
+            reportViolation("tab_switch", document.hidden);
+        });
+
+        function endSession(reason) {
+            const stream = video.srcObject;
+            if (stream) stream.getTracks().forEach(track => track.stop());
+
+            const stage = document.getElementById("stage");
+            stage.innerHTML = `
+                <div style="background:#2a2a2a; border:2px solid #b41e1e; border-radius:14px;
+                            padding:40px; color:white;">
+                    <h2 style="color:#e05a5a; margin-top:0;">Test Ended</h2>
+                    <p style="font-size:16px;">Reason: ${reason}</p>
+                    <p style="font-size:13px; color:#aaa;">You may now close this window.</p>
+                </div>
+            `;
+        }
+
+        async function sendFrame() {
+            if (sessionEnded) return;
+            if (video.readyState !== 4) {
+                setTimeout(sendFrame, 200);
+                return;
+            }
+
+            captureCtx.drawImage(video, 0, 0, 640, 480);
+            const dataUrl = captureCanvas.toDataURL("image/jpeg", 0.5);
+
+            try {
+                const response = await fetch("/analyze", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ image: dataUrl }),
+                });
+                const data = await response.json();
+
+                drawBoxes(data);
+                timerChip.textContent = formatTime(data.remaining_seconds);
+                timerChip.classList.toggle("danger", data.remaining_seconds <= 60);
+
+                if (data.new_violation) showWarning();
+
+                if (data.should_end) {
+                    sessionEnded = true;
+                    endSession(data.end_reason);
+                    return;
+                }
+            } catch (err) {
+                console.error("Analyze request failed:", err);
+            }
+
+            setTimeout(sendFrame, 200);
+        }
+
+        async function startExam() {
+            // Turn on the camera for MONITORING (a new stream, separate
+            // from whatever Project 1 used for the login photo)
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+                video.srcObject = stream;
+            } catch (err) {
+                document.getElementById("stage").innerHTML =
+                    "<p style='color:#e05a5a;'>Camera access denied or unavailable.</p>";
+                return;
+            }
+
+            // Tell Project 2's backend "start a session for this
+            // already-verified candidate" -- no photo, no verification here.
+            try {
+                const response = await fetch("/begin", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ candidate_id: candidateId, candidate_name: candidateName }),
+                });
+                const data = await response.json();
+                if (!data.started) {
+                    document.getElementById("stage").innerHTML =
+                        `<p style='color:#e05a5a;'>${data.reason || "Could not start session."}</p>`;
+                    return;
+                }
+            } catch (err) {
+                document.getElementById("stage").innerHTML =
+                    "<p style='color:#e05a5a;'>Could not reach the server.</p>";
+                return;
+            }
+
+            sendFrame();
+        }
+
+        startExam();
+    </script>
+</body>
+</html>

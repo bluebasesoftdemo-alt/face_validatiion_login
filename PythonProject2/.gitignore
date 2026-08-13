@@ -1,0 +1,44 @@
+# ============================================================
+# .gitignore — Facial Recognition Attendance System
+# ============================================================
+
+# --- Secrets (NEVER commit these) ---
+.env
+
+# --- Python artifacts ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Logs ---
+logs/
+*.log
+
+# --- Exports ---
+exports/
+
+# --- IDE ---
+.idea/
+.vscode/
+*.iml
+
+# --- InsightFace / ONNX model cache ---
+models/
+~/.insightface/
+
+# --- OS ---
+Thumbs.db
+.DS_Store
+
+# --- Employee photos (optional — remove if you want to track them) ---
+assets/employee_photos/

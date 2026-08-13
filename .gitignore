@@ -21,3 +21,18 @@ logs/
 # OS files
 .DS_Store
 Thumbs.db
+
+# PythonProject2
+PythonProject2/.venv/
+PythonProject2/.idea/
+PythonProject2/__pycache__/
+PythonProject2/.env
+PythonProject2/known_faces/
+PythonProject2/employee_photos/
+PythonProject2/violation_snapshots/
+PythonProject2/screen_recordings/
+PythonProject2/logs/
+PythonProject2/exports/
+PythonProject2/models/
+PythonProject2/*.pt
+PythonProject2/PyCharm 2026.1.4/

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Candidate Registration</title>
+    <style>
+        body { background:#1e1e1e; color:white; font-family:'Times New Roman', serif; text-align:center; }
+        #box { max-width:420px; margin:60px auto; background:#2a2a2a; border-radius:14px; padding:30px; }
+        input { width:100%; padding:10px; margin:8px 0; border-radius:6px; border:1px solid #555; background:#1a1a1a; color:white; font-size:15px; box-sizing:border-box; }
+        button { width:100%; padding:12px; margin-top:12px; border-radius:8px; border:none; background:#2c6e49; color:white; font-size:16px; cursor:pointer; }
+        video { width:100%; border-radius:10px; margin-top:10px; border:2px solid #444; }
+        #message { margin-top:14px; font-size:14px; min-height:20px; }
+        #message.error { color:#e05a5a; }
+        #resultBox { display:none; margin-top:20px; background:#1a3a2a; border:2px solid #2c6e49; border-radius:10px; padding:20px; }
+        #resultBox .appnum { font-size:26px; font-weight:bold; color:#6fcf97; }
+    </style>
+</head>
+<body>
+    <div id="box">
+        <h2>Candidate Registration</h2>
+        <input type="text" id="candName" placeholder="Full Name">
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="capture" width="480" height="360" style="display:none;"></canvas>
+        <button onclick="register()">Register</button>
+        <div id="message"></div>
+        <div id="resultBox">
+            <p>Registration successful. Your Application Number is:</p>
+            <div class="appnum" id="appNumberResult"></div>
+        </div>
+    </div>
+    <script>
+        const video = document.getElementById("webcam");
+        const captureCanvas = document.getElementById("capture");
+        const captureCtx = captureCanvas.getContext("2d");
+        const message = document.getElementById("message");
+
+        navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 360 } })
+            .then((stream) => { video.srcObject = stream; })
+            .catch(() => { message.textContent = "Camera access denied or unavailable."; message.className = "error"; });
+
+        async function register() {
+            const name = document.getElementById("candName").value.trim();
+            message.textContent = ""; message.className = "";
+            if (!name) { message.textContent = "Please enter your name."; message.className = "error"; return; }
+            if (video.readyState !== 4) { message.textContent = "Camera not ready yet."; message.className = "error"; return; }
+
+            captureCtx.drawImage(video, 0, 0, 480, 360);
+            const dataUrl = captureCanvas.toDataURL("image/jpeg", 0.8);
+
+            try {
+                const response = await fetch("/register", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ candidate_name: name, image: dataUrl }),
+                });
+                const data = await response.json();
+                if (data.success) {
+                    document.getElementById("appNumberResult").textContent = data.application_number;
+                    document.getElementById("resultBox").style.display = "block";
+                    const stream = video.srcObject;
+                    if (stream) stream.getTracks().forEach(t => t.stop());
+                } else {
+                    message.textContent = data.reason || "Registration failed.";
+                    message.className = "error";
+                }
+            } catch (err) {
+                message.textContent = "Could not reach the server. Try again.";
+                message.className = "error";
+            }
+        }
+    </script>
+</body>
+</html>
