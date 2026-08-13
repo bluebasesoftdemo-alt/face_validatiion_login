@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Candidate Login</title>
+    <style>
+        body {
+            background: #1e1e1e;
+            color: white;
+            font-family: 'Times New Roman', serif;
+            text-align: center;
+        }
+        #loginBox {
+            max-width: 440px;
+            margin: 50px auto;
+            background: #2a2a2a;
+            border-radius: 14px;
+            padding: 30px;
+        }
+        #loginVideo, #photoPreview {
+            width: 100%;
+            border-radius: 8px;
+            border: 2px solid #444;
+        }
+        #photoPreview { display: none; }
+        #loginBox button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 10px;
+            border-radius: 8px;
+            border: none;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        #takePhotoBtn { background: #2c6e49; }
+        #submitBtn { background: #2c6e49; display: none; }
+        #retakeBtn { background: #555; display: none; }
+        #loginError {
+            color: #e05a5a;
+            margin-top: 10px;
+            font-size: 14px;
+            min-height: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Online Assessment</h1>
+
+    <div id="loginBox">
+        <h3 style="margin-top:0;">Candidate Verification</h3>
+        <p style="font-size:13px; color:#aaa;">Position yourself in the frame, then take your photo.</p>
+
+        <video id="loginVideo" autoplay playsinline muted></video>
+        <img id="photoPreview" alt="Captured photo preview">
+
+        <button id="takePhotoBtn" onclick="takePhoto()">Take Photo</button>
+        <button id="retakeBtn" onclick="retakePhoto()">Retake</button>
+        <button id="submitBtn" onclick="submitPhoto()">Submit</button>
+
+        <div id="loginError"></div>
+    </div>
+
+    <canvas id="capture" width="640" height="480" style="display:none;"></canvas>
+
+    <script>
+        const loginVideo = document.getElementById("loginVideo");
+        const photoPreview = document.getElementById("photoPreview");
+        const takePhotoBtn = document.getElementById("takePhotoBtn");
+        const retakeBtn = document.getElementById("retakeBtn");
+        const submitBtn = document.getElementById("submitBtn");
+        const loginError = document.getElementById("loginError");
+        const captureCanvas = document.getElementById("capture");
+        const captureCtx = captureCanvas.getContext("2d");
+
+        let capturedDataUrl = null;
+
+        navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+            .then((stream) => { loginVideo.srcObject = stream; })
+            .catch(() => { loginError.textContent = "Camera access denied or unavailable."; });
+
+        function takePhoto() {
+            loginError.textContent = "";
+            captureCtx.drawImage(loginVideo, 0, 0, 640, 480);
+            capturedDataUrl = captureCanvas.toDataURL("image/jpeg", 0.8);
+
+            photoPreview.src = capturedDataUrl;
+            photoPreview.style.display = "block";
+            loginVideo.style.display = "none";
+
+            takePhotoBtn.style.display = "none";
+            retakeBtn.style.display = "block";
+            submitBtn.style.display = "block";
+        }
+
+        function retakePhoto() {
+            capturedDataUrl = null;
+            photoPreview.style.display = "none";
+            loginVideo.style.display = "block";
+
+            takePhotoBtn.style.display = "block";
+            retakeBtn.style.display = "none";
+            submitBtn.style.display = "none";
+            loginError.textContent = "";
+        }
+
+        async function submitPhoto() {
+            if (!capturedDataUrl) return;
+            loginError.textContent = "";
+            submitBtn.disabled = true;
+
+            try {
+                const response = await fetch("/start", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ image: capturedDataUrl }),
+                });
+                const data = await response.json();
+
+                if (data.verified) {
+                    // Stop this project's camera before leaving the page
+                    const stream = loginVideo.srcObject;
+                    if (stream) stream.getTracks().forEach(t => t.stop());
+
+                    // THE ACTUAL REDIRECT -- browser navigates to Project 2 entirely
+                    window.location.href = data.redirect_url;
+                } else {
+                    loginError.textContent = data.reason || "Verification failed.";
+                    submitBtn.disabled = false;
+                }
+            } catch (err) {
+                console.error("Login request failed:", err);
+                loginError.textContent = "Could not reach the server. Try again.";
+                submitBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
